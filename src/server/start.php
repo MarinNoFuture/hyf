@@ -12,13 +12,13 @@ class start
     private static $daemonize = false;
 
     private static $master_pid = '';
-
+    
     private static function parseCli()
     {
         global $argv;
         
-        if (!isset($argv[1]) && !isset($argv[2])) {
-            exit("使用方法 php {http|timer} app_name {start|stop|killall|reload|reload_task} (-d)\n");
+        if (!isset($argv[1]) || !isset($argv[2])) {
+            throw new \Exception("使用方法 php {http|timer|tcp|websocket} app_name {start|stop|killall|reload|reload_task} (-d)\n");
         }
         
         //
@@ -28,22 +28,24 @@ class start
         
         if (!in_array($argv[0], [
             'http', 
-            'timer'
+            'timer', 
+            'tcp',
+            'websocket'
         ])) {
-            exit("参数使用不正确\n");
+            throw new \Exception("参数[" . $argv[0] . "]使用不正确\n");
         }
         
-        $conf_path = \Hyf::$dir . 'application' . '/' . $argv[1] . '/conf/server.php';
+        if (!is_dir(\Hyf::$dir . 'application' . '/' . $argv[1])) {
+            throw new \Exception("应用[" . $argv[1] . "]不存在\n");
+        }
         
-        if (file_exists($conf_path)) {
-            $server_config = include($conf_path);
+        // 服务配置文件
+        if (file_exists(\Hyf::$dir . 'application' . '/' . $argv[1] . '/conf/server.php')) {
+            \Hyf::$server_config = include (\Hyf::$dir . 'application' . '/' . $argv[1] . '/conf/server.php');
+            \hyf::$server_config['app_name'] = $argv[1];
         } else {
-            if ($argv[0] == 'http') {
-                exit("服务器参数配置不正确\n");
-            }
+            throw new \Exception("服务配置文件[" . \Hyf::$dir . 'application' . '/' . $argv[1] . "/conf/server.php]不存在\n");
         }
-        
-        $server_config['app_name'] = $argv[1];
         
         if (!in_array($argv[2], [
             'start', 
@@ -52,62 +54,50 @@ class start
             'reload',
             'reload_task'
         ])) {
-            exit("参数使用不正确\n");
+            throw new \Exception("参数[" . $argv[2] . "]使用不正确\n");
         }
         
         if (isset($argv[3]) && $argv[3] == '-d') {
             self::$daemonize = true;
         }
         
-        return [
-            $argv[2], 
-            $server_config
-        ];
+        return $argv[2];
     }
 
-    private static function get_master_pid($master_name)
+    private static function get_master_pid()
     {
-        self::$master_pid = trim(shell_exec("pidof {$master_name}"));
+        self::$master_pid = trim(shell_exec("pidof " . \Hyf::$server_config['process_name']['master']));
     }
 
     public static function run($server_type)
     {
         try {
-            list($action, $server_config) = self::parseCli();
-            $server_config['service_type'] = $server_type;
-            if ($server_config['service_type'] == 'timer') {
-                $server_config['process_name'] = [
-                    'base' => 'hy_' . $server_config['app_name'],
-                    'master' => 'hy_' . $server_config['app_name'] . '_master', 
-                    'worker' => 'hy_' . $server_config['app_name'] . '_worker[{id}]'
-                ];
-            } else {
-                $server_config['process_name'] = [
-                    'base' => 'hy_' . $server_config['app_name'],
-                    'master' => 'hy_' . $server_config['app_name'] . '_master', 
-                    'manager' => 'hy_' . $server_config['app_name'] . '_manager', 
-                    'worker' => 'hy_' . $server_config['app_name'] . '_worker[{id}]', 
-                    'task' => 'hy_' . $server_config['app_name'] . '_task[{id}]'
-                ];
-                // 抢占模式，主进程会根据Worker的忙闲状态选择投递，只会投递给处于闲置状态的Worker
-                $server_config['server_set']['dispatch_mode'] = 3;
-                // 设置task async，可以使用协程等
-                $server_config['server_set']['task_async'] = true;
-                // set log file
-                $server_config['server_set']['log_file'] = log_path() . $server_config['app_name'] . '_server.log';
-            }
+            // action
+            $action = self::parseCli();
             
-            self::get_master_pid($server_config['process_name']['master']);
-
+            // 服务类型
+            \Hyf::$server_config['service_type'] = $server_type;
+            
+            // 配置进程名称
+            \Hyf::$server_config['process_name'] = [
+                'base' => 'hy_' . \Hyf::$server_config['app_name'], 
+                'master' => 'hy_' . \Hyf::$server_config['app_name'] . '_master', 
+                'manager' => 'hy_' . \Hyf::$server_config['app_name'] . '_manager', 
+                'worker' => 'hy_' . \Hyf::$server_config['app_name'] . '_worker[{id}]', 
+                'task' => 'hy_' . \Hyf::$server_config['app_name'] . '_task[{id}]'
+            ];
+            
+            self::get_master_pid();
+            
             switch ($action) {
                 case 'start':
-                    self::startService($server_config);
+                    self::startService();
                     break;
                 case 'stop':
                     self::stopService();
                     break;
                 case 'killall':
-                    self::killall($server_config['app_name']);
+                    self::killall();
                     break;
                 case 'reload':
                     self::reload();
@@ -116,6 +106,7 @@ class start
                     self::reload_task();
                     break;
             }
+            
         } catch (\Exception $e) {
             exit("Error: \n File: {$e->getFile()} ,Line: {$e->getLine()}, Message: {$e->getMessage()}\n");
         } catch (\Error $e) {
@@ -123,9 +114,38 @@ class start
         }
     }
 
-    private static function startService(array $server_config)
+    private static function startService()
     {
         if (empty(self::$master_pid)) {
+            
+            // 全局配置文件
+            if (file_exists(\Hyf::$dir . 'conf/base.php')) {
+                \Hyf::$config = include (\Hyf::$dir . 'conf/base.php');
+            } else {
+                throw new \Exception("全局配置文件[" . \Hyf::$dir . "conf/base.php]不存在\n");
+            }
+            
+            // 抢占模式，主进程会根据Worker的忙闲状态选择投递，只会投递给处于闲置状态的Worker
+            \Hyf::$server_config['server_set']['dispatch_mode'] = 3;
+            
+            // 设置task async，可以使用协程等
+            \Hyf::$server_config['server_set']['task_async'] = true;
+            
+            // set log file
+            \Hyf::$server_config['server_set']['log_file'] = log_path() . \Hyf::$server_config['app_name'] . '_server.log';
+            
+            // 设置服务进程状态
+            \Hyf::$server_config['server_set']['daemonize'] = self::$daemonize;
+            
+            // 全局应用名称
+            \Hyf::$app_name = \Hyf::$server_config['app_name'];
+            
+            // 一键php原生语句协程化
+            if (isset(\Hyf::$server_config['enableCoroutine']) && \Hyf::$server_config['enableCoroutine'] == 1) {
+                \Swoole\Runtime::enableCoroutine(true);
+            }
+            
+            // 屏幕欢迎信息
             echo "\n";
             echo "\033[0;42;37m***************************************************************\033[0m\n";
             echo "\033[0;42;37m*                                                             *\033[0m\n";
@@ -143,29 +163,15 @@ class start
             echo "\nphp版本: \033[32m" . PHP_VERSION . "\033[0m";
             echo "\nswoole版本: \033[32m" . swoole_version() . "\033[0m";
             echo "\nhyf版本: \033[32m" . version() . "\033[0m\n\n";
-            
-            // set daemonize
-            $server_config['server_set']['daemonize'] = self::$daemonize;
             if (!self::$daemonize) {
                 echo "\n\n\033[0;33m***************************调试模式****************************\033[0m\n\n";
             }
-            // 全局配置
-            \Hyf::$config = include(\Hyf::$dir . 'conf/base.php');
-            \Hyf::$app_name = $server_config['app_name'];
-            \Hyf::$server_config = $server_config;
-            
-            // 一键php原生语句协程化
-            if(isset($server_config['enableCoroutine']) && $server_config['enableCoroutine'] == 1) {
-                \Swoole\Runtime::enableCoroutine(true);
-            }
             
             // start server
-            call_user_func_array(array(
-                '\\hyf\\server\\servers\\' . $server_config['service_type'] . '_server', 
+            call_user_func_array([
+                '\\hyf\\server\\serv\\' . \Hyf::$server_config['service_type'], 
                 'run'
-            ), array(
-                $server_config
-            ));
+            ], []);
         } else {
             throw new \Exception("服务正在运行，请勿重复启动\n");
         }
@@ -180,11 +186,11 @@ class start
         }
     }
 
-    private static function killall($app_name)
+    private static function killall()
     {
-        \system('ps -ef|grep hy_' . $app_name . '|grep -v grep|awk \'{print "kill -9 " $2}\' |sh');
+        \system('ps -ef|grep hy_' . \Hyf::$server_config['app_name'] . '|grep -v grep|awk \'{print "kill -9 " $2}\' |sh');
     }
-
+    
     /**
      * 平滑重启所有worker，仅针对业务代码所做的修改起效，对全局的定时器、初始化脚本的修改不起作用
      * @throws \Exception
@@ -198,7 +204,7 @@ class start
             echo "worker将逐步进行重启\n";
         }
     }
-
+    
     /**
      * 平滑重启所有task，仅针对业务代码所做的修改起效，对全局的定时器、初始化脚本的修改不起作用
      * @throws \Exception
@@ -212,4 +218,5 @@ class start
             echo "task将逐步进行重启\n";
         }
     }
+    
 }

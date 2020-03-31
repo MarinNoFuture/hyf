@@ -3,25 +3,25 @@ namespace hyf\component\db\mysql;
 
 class core
 {
-
+    
     public $dsn;
-
+    
     public $dbuser;
-
+    
     public $dbpass;
-
+    
     public $strict;
-
+    
     public $charset;
-
+    
     public $sth;
-
+    
     public $dbh;
-
+    
     public $timeout;
-
+    
     public $logfile;
-
+    
     public function __construct($dbType = "mysql")
     {
         $dbConf = \Hyf::$config[$dbType];
@@ -34,7 +34,7 @@ class core
         $this->charset = $dbConf['charset'];
         $this->connect();
     }
-
+    
     private function connect()
     {
         try {
@@ -52,12 +52,12 @@ class core
             file_put_contents($this->logfile, date('Y-m-d H:i:s') . " " . $e->getMessage(), FILE_APPEND | LOCK_EX);
         }
     }
-
+    
     public function getLastID()
     {
         return $this->dbh->lastInsertId();
     }
-
+    
     private function getPDOError($sql)
     {
         if ($this->dbh->errorCode() != '00000') {
@@ -66,7 +66,7 @@ class core
         }
         return true;
     }
-
+    
     public function query($sql, $model = 'many')
     {
         $this->sth = @$this->dbh->query($sql);
@@ -82,7 +82,7 @@ class core
         $this->sth = null;
         return $result;
     }
-
+    
     public function exec($sql)
     {
         $rtn = @$this->dbh->exec($sql);
@@ -91,7 +91,7 @@ class core
         }
         return $rtn;
     }
-
+    
     // yield obj
     public function yield_query($sql)
     {
@@ -103,7 +103,7 @@ class core
             yield $row;
         }
     }
-
+    
     public function reconnect($sql, $type = 'query')
     {
         $this->connect();
@@ -116,22 +116,22 @@ class core
         file_put_contents($this->logfile, PHP_EOL . date('Y-m-d H:i:s') . " [reconnect]" . PHP_EOL . $sql . PHP_EOL, FILE_APPEND | LOCK_EX);
         return $result;
     }
-
+    
     public function beginTransaction()
     {
         $this->dbh->beginTransaction();
     }
-
+    
     public function commit()
     {
         $this->dbh->commit();
     }
-
+    
     public function rollback()
     {
         $this->dbh->rollback();
     }
-
+    
     public function __destruct() {
         $this->dbh = null;
     }

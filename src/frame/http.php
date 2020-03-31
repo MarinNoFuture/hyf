@@ -13,6 +13,12 @@ class http
     public static function Handle()
     {
         try {
+            // 响应头
+            if (empty(server_config()['content-type'])) {
+                \Hyf::$server_config['content-type'] = "application/json; charset=utf-8";
+            }
+            response()->header("Content-Type", server_config()['content-type']);
+            
             // 获取路由模式
             $mode = !empty(app_config()['route']['mode']) ? app_config()['route']['mode'] : 'normal';
             // 获取自定义errorHook
@@ -101,7 +107,6 @@ class http
 
     public static function appRun()
     {
-
         if (!empty(\Hyf::$group)) {
             $current_controller_class = "\\application\\" . app_name() . "\\controller\\" . \Hyf::$group . '\\' . \Hyf::$controller;
         } else {

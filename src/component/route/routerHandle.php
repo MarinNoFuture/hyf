@@ -25,6 +25,8 @@ class routerHandle
     public static $callbacks = [];
 
     public static $middleware = [];
+    
+    public static $middleware_after = [];
 
     public static $maps = [];
 
@@ -39,6 +41,8 @@ class routerHandle
     public static $group = '';
 
     public static $group_middleware = null;
+    
+    public static $group_middleware_after = null;
 
     public static function group(...$params)
     {
@@ -46,9 +50,16 @@ class routerHandle
         if (count($params) == 2) {
             $middleware = null;
             $callback = $params[1];
+            $middleware_after = null;
         } elseif (count($params) == 3) {
             $middleware = $params[1];
             $callback = $params[2];
+            $middleware_after = null;
+        }
+        elseif (count($params) == 4) {
+            $middleware = $params[1];
+            $callback = $params[2];
+            $middleware_after = $params[3];
         }
         self::$group = rtrim((strpos($uri, '/') === 0 ? $uri : '/' . $uri), '/');
         if (is_object($middleware) || is_null($middleware)) {
@@ -56,9 +67,15 @@ class routerHandle
         } else {
             self::$group_middleware = "\\application\\" . app_name() . "\\middleware\\" . $middleware;
         }
+        if (is_object($middleware_after) || is_null($middleware_after)) {
+            self::$group_middleware_after = $middleware_after;
+        } else {
+            self::$group_middleware_after = "\\application\\" . app_name() . "\\middleware\\" . $middleware_after;
+        }
         $callback(self::class);
         self::$group = '';
         self::$group_middleware = null;
+        self::$group_middleware_after = null;
     }
 
     /**
@@ -72,9 +89,15 @@ class routerHandle
             if (count($params) == 3) {
                 $middleware = null;
                 $callback = $params[2];
+                $middleware_after = null;
             } elseif (count($params) == 4) {
                 $middleware = $params[2];
                 $callback = $params[3];
+                $middleware_after = null;
+            } elseif (count($params) == 5) {
+                $middleware = $params[2];
+                $callback = $params[3];
+                $middleware_after = $params[4];
             }
         } else {
             $maps = null;
@@ -83,9 +106,15 @@ class routerHandle
             if (count($params) == 2) {
                 $middleware = null;
                 $callback = $params[1];
+                $middleware_after = null;
             } elseif (count($params) == 3) {
                 $middleware = $params[1];
                 $callback = $params[2];
+                $middleware_after = null;
+            } elseif (count($params) == 4) {
+                $middleware = $params[1];
+                $callback = $params[2];
+                $middleware_after = $params[3];
             }
         }
         
@@ -107,6 +136,17 @@ class routerHandle
             array_push(self::$callbacks, $callback);
         } else {
             array_push(self::$callbacks, "\\application\\" . app_name() . "\\controller\\" . $callback);
+        }
+        if (is_object($middleware_after) || is_null($middleware_after)) {
+            array_push(self::$middleware_after, [
+                $middleware_after, 
+                self::$group_middleware_after
+            ]);
+        } else {
+            array_push(self::$middleware_after, [
+                "\\application\\" . app_name() . "\\middleware\\" . $middleware_after, 
+                self::$group_middleware_after
+            ]);
         }
     }
 
@@ -186,17 +226,41 @@ class routerHandle
                         $controller = new $segments[0]();
                         
                         // Call method
-                        return $controller->{$segments[1]}();
+                        $return = $controller->{$segments[1]}();
                         
                         if (self::$halts)
                             return;
                     } else {
                         // Call closure
-                        return call_user_func(self::$callbacks[$route]);
+                        $return = call_user_func(self::$callbacks[$route]);
                         
                         if (self::$halts)
                             return;
                     }
+                    foreach (self::$middleware_after[$route] as $middleware) {
+                        if ($middleware != null) {
+                            if (!is_object($middleware)) {
+                                // Grab all parts based on a / separator
+                                $parts_m = explode('/', $middleware);
+                                
+                                // Collect the last index of the array
+                                $last_m = end($parts_m);
+                                
+                                // Grab the controller name and method call
+                                $segments_m = explode('@', $last_m);
+                                
+                                // Instanitate controller
+                                $controller_m = new $segments_m[0]();
+                                
+                                // Call method
+                                $controller_m->{$segments_m[1]}();
+                            } else {
+                                // Call closure
+                                call_user_func($middleware);
+                            }
+                        }
+                    }
+                    return $return;
                 }
             }
         } else {
@@ -255,7 +319,7 @@ class routerHandle
                             if (!method_exists($controller, $segments[1])) {
                                 throw new \Exception("controller and action not found");
                             } else {
-                                return call_user_func_array(array(
+                                $return = call_user_func_array(array(
                                     $controller, 
                                     $segments[1]
                                 ), $matched);
@@ -264,11 +328,35 @@ class routerHandle
                             if (self::$halts)
                                 return;
                         } else {
-                            return call_user_func_array(self::$callbacks[$pos], $matched);
+                            $return = call_user_func_array(self::$callbacks[$pos], $matched);
                             
                             if (self::$halts)
                                 return;
                         }
+                        foreach (self::$middleware_after[$pos] as $middleware) {
+                            if ($middleware != null) {
+                                if (!is_object($middleware)) {
+                                    // Grab all parts based on a / separator
+                                    $parts_m = explode('/', $middleware);
+                                    
+                                    // Collect the last index of the array
+                                    $last_m = end($parts_m);
+                                    
+                                    // Grab the controller name and method call
+                                    $segments_m = explode('@', $last_m);
+                                    
+                                    // Instanitate controller
+                                    $controller_m = new $segments_m[0]();
+                                    
+                                    // Call method
+                                    $controller_m->{$segments_m[1]}();
+                                } else {
+                                    // Call closure
+                                    call_user_func($middleware);
+                                }
+                            }
+                        }
+                        return $return;
                     }
                 }
                 $pos++;

@@ -1,7 +1,7 @@
 <?php
 /**
  * Class Hyf
- *
+ * 
  * @author
  */
 class Hyf
@@ -12,7 +12,7 @@ class Hyf
      *
      * @var string
      */
-    public static $version = "2.2.6";
+    public static $version = "3.0.0_beta1";
     
     /**
      * 系统主路径
@@ -63,6 +63,20 @@ class Hyf
      */
     public static $response;
 
+    /**
+     * tcp data
+     *
+     * @var object
+     */
+    public static $tcp_data;
+    
+    /**
+     * websocket frame
+     *
+     * @var object
+     */
+    public static $websocket_frame;
+    
     /**
      * 请求group名
      *

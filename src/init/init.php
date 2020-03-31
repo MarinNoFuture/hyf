@@ -5,7 +5,6 @@ use hyf\init\job\memory;
 use hyf\init\job\start;
 use hyf\init\job\timer;
 use hyf\init\job\server;
-use hyf\init\job\timerPool;
 use hyf\init\job\process;
 
 class init
@@ -21,7 +20,21 @@ class init
         'timer' => [
             memory::class,
             start::class,
-            timerPool::class
+            timer::class,
+            process::class
+        ],
+        'tcp' => [
+            memory::class,
+            start::class,
+            timer::class,
+            process::class,
+            server::class
+        ],
+        'websocket' => [
+            memory::class,
+            start::class,
+            timer::class,
+            process::class
         ]
     ];
 

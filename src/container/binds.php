@@ -19,6 +19,15 @@ class binds
         'timer' => [
             'mysql' => mysql::class, 
             'redis' => redis::class
+        ],
+        'tcp' => [
+            'mysql' => mysql::class,
+            'redis' => redis::class
+        ],
+        'websocket' => [
+            'output' => output::class,
+            'mysql' => mysql::class,
+            'redis' => redis::class
         ]
     ];
 
